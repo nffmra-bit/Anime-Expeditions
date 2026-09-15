@@ -4,11 +4,6 @@ local player = Players.LocalPlayer
 local event =
     game.ReplicatedStorage.Nodes.Network.NetworkEvents._updateNode
 
-
--- =========================================
--- FISHING SPOTS
--- =========================================
-
 local spots = {
     {
         pos = Vector3.new(2988.12, 1789.11, 3135.96),
@@ -35,11 +30,6 @@ local spots = {
         value = 0.0747848
     }
 }
-
-
--- =========================================
--- NÄCHSTEN SPOT FINDEN
--- =========================================
 
 local function getNearestSpot()
     local character = player.Character
@@ -69,16 +59,7 @@ local function getNearestSpot()
     return nearest, nearestIndex, nearestDistance
 end
 
-
--- =========================================
--- MATCHA UI
--- =========================================
-
 UI.AddTab("Fishing", function(tab)
-
-    -- =====================
-    -- AUTO FISH
-    -- =====================
 
     local autoSection =
         tab:Section("Auto Fish", "Left")
@@ -88,11 +69,6 @@ UI.AddTab("Fishing", function(tab)
         "Enable Auto Fish",
         false
     )
-
-
-    -- =====================
-    -- TELEPORT
-    -- =====================
 
     local tpSection =
         tab:Section("Teleport", "Right")
@@ -124,20 +100,12 @@ UI.AddTab("Fishing", function(tab)
 
 end)
 
-
--- =========================================
--- AUTO FISH LOOP
--- =========================================
-
 while true do
-
     if UI.GetValue("fishing_auto") then
-
         local nearest =
             getNearestSpot()
 
         if nearest then
-
             event:FireServer(
                 {["Type"] = "Post"},
                 "FISH_CAST_REEL",
@@ -150,7 +118,6 @@ while true do
                 "FISHING_RESULT",
                 true
             )
-
         end
     end
 

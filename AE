@@ -1,125 +1,608 @@
 local Players = game:GetService("Players")
-local player = Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
 
-local event =
-    game.ReplicatedStorage.Nodes.Network.NetworkEvents._updateNode
-
-local spots = {
-    {
-        pos = Vector3.new(2988.12, 1789.11, 3135.96),
-        value = 0.108838
-    },
-    {
-        pos = Vector3.new(3007.15, 1908.73, 2825.25),
-        value = 0.0696113
-    },
-    {
-        pos = Vector3.new(3103.75, 2.92, -231.42),
-        value = 0.053784
-    },
-    {
-        pos = Vector3.new(2559.30, 2415.18, 2525.73),
-        value = 0.0715253
-    },
-    {
-        pos = Vector3.new(2756.57, 1996.73, 3025.91),
-        value = 0.0588838
-    },
-    {
-        pos = Vector3.new(3012.41, 1617.88, 2858.05),
-        value = 0.0747848
-    }
+local CONFIG = {
+    TabName = "AE",
+    FishResultDelay = 0.20,
+    FishLoopDelay = 3.00,
+    FishingShopInterval = 1.00,
+    CraftLoopDelay = 2.00,
+    SpriteStepDelay = 3.00,
+    SpriteCycleDelay = 10.00,
+    SummonLoopDelay = 6.00,
+    AntiAfkInterval = 300.00,
+    AntiAfkCheckInterval = 1.00,
+    IdleLoopDelay = 0.20,
+    MaxSummonAmount = 50,
 }
 
-local function getNearestSpot()
-    local character = player.Character
-    local root =
-        character and character:FindFirstChild("HumanoidRootPart")
+local SPOTS = {
+    { position = Vector3.new(2988.12, 1789.11, 3135.96), value = 0.108838 },
+    { position = Vector3.new(3007.15, 1908.73, 2825.25), value = 0.0696113 },
+    { position = Vector3.new(3103.75, 2.92, -231.42), value = 0.053784 },
+    { position = Vector3.new(2559.30, 2415.18, 2525.73), value = 0.0715253 },
+    { position = Vector3.new(2756.57, 1996.73, 3025.91), value = 0.0588838 },
+    { position = Vector3.new(3012.41, 1617.88, 2858.05), value = 0.0747848 },
+}
 
-    if not root or #spots == 0 then
-        return nil, nil, nil
+local CRAFT_OPTIONS = {
+    { name = "Yellow Sprite", recipe = "SpriteYellow", mode = 1 },
+    { name = "Red Sprite", recipe = "SpriteRed", mode = 1 },
+    { name = "Green Sprite", recipe = "SpriteGreen", mode = 1 },
+    { name = "Pink Sprite", recipe = "SpritePink", mode = 1 },
+    { name = "Purple Sprite", recipe = "SpritePurple", mode = 1 },
+    { name = "Blue Sprite", recipe = "SpriteBlue", mode = 1 },
+    { name = "Grey Sprite", recipe = "SpriteGrey", mode = 1 },
+    { name = "Rainbow Sprite (30 Grey)", recipe = "SpriteRainbow", mode = 1 },
+    { name = "Rainbow Sprite (1 All Sprite)", recipe = "SpriteRainbow", mode = 2 },
+    { name = "Holy Pendant", recipe = "HinataEVOItem", mode = 1 },
+    { name = "Ancient Bell", recipe = "EnelEVOItem", mode = 1 },
+    { name = "Hexed Blade", recipe = "MegumiEquipment", mode = 1 },
+    { name = "Pointy Straw", recipe = "TrunksEquipment", mode = 1 },
+    { name = "Mentor's Cape", recipe = "GohanEquipment", mode = 1 },
+}
+
+local SHOP_ITEMS = {
+    { name = "Summer Capsule", itemId = 1, shopIndex = 1, amount = 1 },
+    { name = "Stat Reroll", itemId = 5, shopIndex = 4, amount = 1 },
+    { name = "Trait Crystal", itemId = 4, shopIndex = 3, amount = 1 },
+    { name = "Stat Lock", itemId = 7, shopIndex = 5, amount = 1 },
+    { name = "Equipment Reroll", itemId = 10, shopIndex = 6, amount = 1 },
+    { name = "Equipment Lock", itemId = 9, shopIndex = 7, amount = 1 },
+}
+
+local AUTO_SPRITE_RECIPES = {
+    { recipe = "SpriteYellow", mode = 1 },
+    { recipe = "SpriteRed", mode = 1 },
+    { recipe = "SpriteGreen", mode = 1 },
+    { recipe = "SpritePink", mode = 1 },
+    { recipe = "SpritePurple", mode = 1 },
+    { recipe = "SpriteBlue", mode = 1 },
+    { recipe = "SpriteRainbow", mode = 1 },
+}
+
+local SUMMON_TYPES = { "Standard", "Mini" }
+local MOVE_KEYS = { 0x57, 0x41, 0x53, 0x44 }
+local CRAFT_NAMES = {}
+local SHOP_NAMES = {}
+
+for index, option in ipairs(CRAFT_OPTIONS) do
+    CRAFT_NAMES[index] = option.name
+end
+
+for index, item in ipairs(SHOP_ITEMS) do
+    SHOP_NAMES[index] = item.name
+end
+
+local function log(message)
+    pcall(function()
+        print("[AE] " .. tostring(message))
+    end)
+end
+
+local function getUiValue(id, fallback)
+    if not UI or type(UI.GetValue) ~= "function" then
+        return fallback
     end
 
-    local nearest = spots[1]
-    local nearestIndex = 1
-    local nearestDistance =
-        (root.Position - spots[1].pos).Magnitude
+    local ok, value = pcall(function()
+        return UI.GetValue(id)
+    end)
 
-    for i = 2, #spots do
-        local distance =
-            (root.Position - spots[i].pos).Magnitude
+    if ok and value ~= nil then
+        return value
+    end
 
-        if distance < nearestDistance then
-            nearest = spots[i]
-            nearestIndex = i
+    return fallback
+end
+
+local function setUiValue(id, value)
+    if not UI or type(UI.SetValue) ~= "function" then
+        return false
+    end
+
+    local ok = pcall(function()
+        UI.SetValue(id, value)
+    end)
+
+    return ok
+end
+
+local updateNode
+local missingRemoteReported = false
+
+local function getUpdateNode()
+    if updateNode then
+        return updateNode
+    end
+
+    local ok, result = pcall(function()
+        local nodes = ReplicatedStorage:FindFirstChild("Nodes")
+        local network = nodes and nodes:FindFirstChild("Network")
+        local events = network and network:FindFirstChild("NetworkEvents")
+        return events and events:FindFirstChild("_updateNode")
+    end)
+
+    if ok and result then
+        updateNode = result
+        return updateNode
+    end
+
+    if not missingRemoteReported then
+        missingRemoteReported = true
+        log("_updateNode was not found. Server actions are disabled.")
+    end
+
+    return nil
+end
+
+local function fireRemote(action, first, second, third, fourth, fifth)
+    local remote = getUpdateNode()
+    if not remote then
+        return false
+    end
+
+    local ok, errorMessage
+
+    if action == "FISH_CAST_REEL" then
+        ok, errorMessage = pcall(function()
+            remote:FireServer({ Type = "Post" }, action, first, second)
+        end)
+    elseif action == "FISHING_RESULT" then
+        ok, errorMessage = pcall(function()
+            remote:FireServer({ Type = "Post" }, action, first)
+        end)
+    elseif action == "REQUEST_CRAFT_CRAFTING_RECIPE" then
+        ok, errorMessage = pcall(function()
+            remote:FireServer({ Type = "Post" }, action, first, second, third)
+        end)
+    elseif action == "BANNER_SUMMON" then
+        ok, errorMessage = pcall(function()
+            remote:FireServer({ Type = "Post" }, action, first, second)
+        end)
+    elseif action == "SHOP_NODE_55_RequestNODE" then
+        ok, errorMessage = pcall(function()
+            remote:FireServer(
+                { Type = "Post" },
+                action,
+                first,
+                second,
+                third,
+                fourth,
+                fifth
+            )
+        end)
+    else
+        return false
+    end
+
+    if not ok then
+        log("Remote call failed: " .. tostring(errorMessage))
+    end
+
+    return ok
+end
+
+local function getRootPart()
+    local character = LocalPlayer and LocalPlayer.Character
+    if not character then
+        return nil
+    end
+
+    local ok, root = pcall(function()
+        return character:FindFirstChild("HumanoidRootPart")
+    end)
+
+    return ok and root or nil
+end
+
+local function getNearestSpot()
+    local root = getRootPart()
+    if not root then
+        return nil
+    end
+
+    local ok, rootPosition = pcall(function()
+        return root.Position
+    end)
+
+    if not ok or not rootPosition then
+        return nil
+    end
+
+    local nearest
+    local nearestDistance
+
+    for _, spot in ipairs(SPOTS) do
+        local distance = (rootPosition - spot.position).Magnitude
+        if not nearestDistance or distance < nearestDistance then
+            nearest = spot
             nearestDistance = distance
         end
     end
 
-    return nearest, nearestIndex, nearestDistance
+    return nearest
 end
 
-UI.AddTab("Fishing", function(tab)
+local function teleportToNearestSpot()
+    local nearest = getNearestSpot()
+    local root = getRootPart()
 
-    local autoSection =
-        tab:Section("Auto Fish", "Left")
+    if not nearest or not root then
+        return false
+    end
 
-    autoSection:Toggle(
-        "fishing_auto",
-        "Enable Auto Fish",
-        false
-    )
+    local destination = nearest.position + Vector3.new(0, 3, 0)
 
-    local tpSection =
-        tab:Section("Teleport", "Right")
+    local moved = pcall(function()
+        root.CFrame = CFrame.new(destination)
+    end)
 
-    tpSection:Button(
-        "TP to Nearest Fishing Spot",
-        function()
+    if not moved then
+        moved = pcall(function()
+            root.Position = destination
+        end)
+    end
 
-            local nearest, index =
-                getNearestSpot()
+    pcall(function()
+        root.Velocity = Vector3.new(0, 0, 0)
+    end)
 
-            if not nearest then
-                return
+    return moved
+end
+
+local function getSelectedCraft()
+    local selected = getUiValue("craft_selected", 0)
+
+    if type(selected) == "number" then
+        return CRAFT_OPTIONS[selected + 1]
+    end
+
+    if type(selected) == "string" then
+        for _, option in ipairs(CRAFT_OPTIONS) do
+            if option.name == selected then
+                return option
             end
-
-            local character = player.Character
-            local root =
-                character and character:FindFirstChild("HumanoidRootPart")
-
-            if root then
-                root.Position =
-                    nearest.pos + Vector3.new(0, 3, 0)
-
-                root.Velocity =
-                    Vector3.new(0, 0, 0)
-            end
-        end
-    )
-
-end)
-
-while true do
-    if UI.GetValue("fishing_auto") then
-        local nearest =
-            getNearestSpot()
-
-        if nearest then
-            event:FireServer(
-                {["Type"] = "Post"},
-                "FISH_CAST_REEL",
-                nearest.pos,
-                nearest.value
-            )
-
-            event:FireServer(
-                {["Type"] = "Post"},
-                "FISHING_RESULT",
-                true
-            )
         end
     end
 
-    task.wait(1)
+    return CRAFT_OPTIONS[1]
+end
+
+local function craftSelected()
+    local option = getSelectedCraft()
+    if not option then
+        return false
+    end
+
+    return fireRemote(
+        "REQUEST_CRAFT_CRAFTING_RECIPE",
+        option.recipe,
+        option.mode,
+        1
+    )
+end
+
+local function getSelectedShopItem()
+    local selected = getUiValue("shop_selected", 0)
+
+    if type(selected) == "number" then
+        return SHOP_ITEMS[selected + 1]
+    end
+
+    if type(selected) == "string" then
+        for _, item in ipairs(SHOP_ITEMS) do
+            if item.name == selected then
+                return item
+            end
+        end
+    end
+
+    return SHOP_ITEMS[1]
+end
+
+local function buyShopItem(item)
+    if not item then
+        return false
+    end
+
+    return fireRemote(
+        "SHOP_NODE_55_RequestNODE",
+        item.itemId,
+        "PurchaseItem",
+        "SummerShop",
+        item.shopIndex,
+        item.amount
+    )
+end
+
+local function buySelectedShopItem()
+    return buyShopItem(getSelectedShopItem())
+end
+
+local function getSelectedSummon()
+    local selected = getUiValue("summon_selected", 0)
+
+    if type(selected) == "number" then
+        return SUMMON_TYPES[selected + 1] or SUMMON_TYPES[1]
+    end
+
+    if selected == "Standard" or selected == "Mini" then
+        return selected
+    end
+
+    return SUMMON_TYPES[1]
+end
+
+local function getSummonAmount()
+    local amount = tonumber(getUiValue("summon_amount", 1)) or 1
+    amount = math.floor(amount)
+
+    if amount < 1 then
+        return 1
+    end
+
+    if amount > CONFIG.MaxSummonAmount then
+        return CONFIG.MaxSummonAmount
+    end
+
+    return amount
+end
+
+local function summonSelected()
+    return fireRemote(
+        "BANNER_SUMMON",
+        getSelectedSummon(),
+        getSummonAmount()
+    )
+end
+
+local function tapAntiAfkKey(key)
+    if type(keypress) ~= "function" or type(keyrelease) ~= "function" then
+        return false
+    end
+
+    if type(isrbxactive) == "function" then
+        local activeOk, active = pcall(isrbxactive)
+        if not activeOk or active ~= true then
+            return false
+        end
+    end
+
+    local pressed = pcall(function()
+        keypress(key)
+    end)
+
+    if not pressed then
+        return false
+    end
+
+    pcall(function()
+        task.wait(0.02)
+    end)
+
+    local released = pcall(function()
+        keyrelease(key)
+    end)
+
+    return pressed and released
+end
+
+local function buildUi()
+    if not UI or type(UI.AddTab) ~= "function" then
+        log("Matcha UI Binding is unavailable; script stopped safely.")
+        return false
+    end
+
+    local ok, errorMessage = pcall(function()
+        UI.AddTab(CONFIG.TabName, function(tab)
+            local fishing = tab:Section("Fishing Event", "Left")
+            fishing:Combo("shop_selected", "Shop Item", SHOP_NAMES, 0)
+            fishing:Button("Buy Selected Item", function()
+                buySelectedShopItem()
+            end)
+            fishing:Toggle("fishing_shop_auto", "Auto Buy Fishing Item", false)
+            fishing:Toggle("fishing_auto", "Auto Fish", false)
+            fishing:Button("TP to Nearest Fishing Spot", function()
+                teleportToNearestSpot()
+            end)
+
+            local crafting = tab:Section("Crafting", "Left")
+            crafting:Combo("craft_selected", "Recipe", CRAFT_NAMES, 0)
+            crafting:Button("Craft Selected", function()
+                craftSelected()
+            end)
+            crafting:Toggle("craft_auto", "Auto Craft", false)
+            crafting:Toggle("craft_sprite_auto", "Auto Max Sprite Craft", false)
+            crafting:Tip("Sprite Auto has priority when both craft modes are enabled.")
+
+            local misc = tab:Section("Misc", "Right")
+            misc:Toggle("anti_afk", "Anti AFK", false)
+
+            local summon = tab:Section("Summon", "Right")
+            summon:Combo("summon_selected", "Type", SUMMON_TYPES, 0)
+            summon:SliderInt("summon_amount", "Amount", 1, CONFIG.MaxSummonAmount, 1)
+            summon:Button("Summon Selected", function()
+                summonSelected()
+            end)
+            summon:Toggle("summon_auto", "Auto Open", false)
+
+        end)
+    end)
+
+    if not ok then
+        log("UI creation failed: " .. tostring(errorMessage))
+        return false
+    end
+
+    return true
+end
+
+local function startWorkers()
+    task.spawn(function()
+        while true do
+            local ok, errorMessage = pcall(function()
+                local fishingEnabled = getUiValue("fishing_auto", false) == true
+
+                if not fishingEnabled then
+                    task.wait(CONFIG.IdleLoopDelay)
+                else
+                    local spot = getNearestSpot()
+
+                    if spot then
+                        fireRemote("FISH_CAST_REEL", spot.position, spot.value)
+                        task.wait(CONFIG.FishResultDelay)
+
+                        if getUiValue("fishing_auto", false) then
+                            fireRemote("FISHING_RESULT", true)
+                        end
+                    end
+
+                    task.wait(CONFIG.FishLoopDelay)
+                end
+            end)
+
+            if not ok then
+                log("Fishing worker recovered: " .. tostring(errorMessage))
+                task.wait(1)
+            end
+        end
+    end)
+
+    task.spawn(function()
+        local nextShopPurchaseAt = 0
+
+        while true do
+            local ok, errorMessage = pcall(function()
+                local enabled = getUiValue("fishing_shop_auto", false) == true
+
+                if not enabled then
+                    nextShopPurchaseAt = 0
+                    task.wait(CONFIG.IdleLoopDelay)
+                elseif nextShopPurchaseAt == 0 or os.clock() >= nextShopPurchaseAt then
+                    buySelectedShopItem()
+                    nextShopPurchaseAt = os.clock() + CONFIG.FishingShopInterval
+                else
+                    local remaining = nextShopPurchaseAt - os.clock()
+                    task.wait(math.min(0.25, math.max(0.05, remaining)))
+                end
+            end)
+
+            if not ok then
+                log("Shop worker recovered: " .. tostring(errorMessage))
+                task.wait(1)
+            end
+        end
+    end)
+
+    task.spawn(function()
+        local spriteIndex = 1
+        local previousSpriteEnabled = false
+
+        while true do
+            local ok, errorMessage = pcall(function()
+                local spriteEnabled = getUiValue("craft_sprite_auto", false) == true
+                local craftEnabled = getUiValue("craft_auto", false) == true
+
+                if spriteEnabled then
+                    if not previousSpriteEnabled then
+                        spriteIndex = 1
+                    end
+
+                    local recipe = AUTO_SPRITE_RECIPES[spriteIndex]
+                    if recipe then
+                        fireRemote(
+                            "REQUEST_CRAFT_CRAFTING_RECIPE",
+                            recipe.recipe,
+                            recipe.mode,
+                            1
+                        )
+
+                        spriteIndex = spriteIndex + 1
+                        if spriteIndex > #AUTO_SPRITE_RECIPES then
+                            spriteIndex = 1
+                            task.wait(CONFIG.SpriteCycleDelay)
+                        else
+                            task.wait(CONFIG.SpriteStepDelay)
+                        end
+                    else
+                        spriteIndex = 1
+                        task.wait(CONFIG.IdleLoopDelay)
+                    end
+                elseif craftEnabled then
+                    spriteIndex = 1
+                    craftSelected()
+                    task.wait(CONFIG.CraftLoopDelay)
+                else
+                    spriteIndex = 1
+                    task.wait(CONFIG.IdleLoopDelay)
+                end
+
+                previousSpriteEnabled = spriteEnabled
+            end)
+
+            if not ok then
+                log("Crafting worker recovered: " .. tostring(errorMessage))
+                task.wait(1)
+            end
+        end
+    end)
+
+    task.spawn(function()
+        while true do
+            local ok, errorMessage = pcall(function()
+                if getUiValue("summon_auto", false) then
+                    summonSelected()
+                    task.wait(CONFIG.SummonLoopDelay)
+                else
+                    task.wait(CONFIG.IdleLoopDelay)
+                end
+            end)
+
+            if not ok then
+                log("Summon worker recovered: " .. tostring(errorMessage))
+                task.wait(1)
+            end
+        end
+    end)
+
+    task.spawn(function()
+        pcall(function()
+            math.randomseed(math.floor(os.clock() * 100000))
+        end)
+
+        local nextActionAt = 0
+
+        while true do
+            local ok, errorMessage = pcall(function()
+                local enabled = getUiValue("anti_afk", false) == true
+
+                if not enabled then
+                    nextActionAt = 0
+                    task.wait(CONFIG.IdleLoopDelay)
+                elseif nextActionAt == 0 or os.clock() >= nextActionAt then
+                    local key = MOVE_KEYS[math.random(1, #MOVE_KEYS)]
+                    if tapAntiAfkKey(key) then
+                        nextActionAt = os.clock() + CONFIG.AntiAfkInterval
+                    else
+                        nextActionAt = os.clock() + CONFIG.AntiAfkCheckInterval
+                    end
+                else
+                    local remaining = nextActionAt - os.clock()
+                    task.wait(math.min(CONFIG.AntiAfkCheckInterval, math.max(0.1, remaining)))
+                end
+            end)
+
+            if not ok then
+                log("Anti-AFK worker recovered: " .. tostring(errorMessage))
+                task.wait(1)
+            end
+        end
+    end)
+
+end
+
+if buildUi() then
+    startWorkers()
 end
